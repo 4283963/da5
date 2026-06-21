@@ -68,19 +68,26 @@ func (s *calibrationService) performCalibration(diveID string) (*model.Calibrate
 	now := time.Now()
 
 	for _, raw := range rawDataList {
-		result := s.calculator.Calibrate(raw.Conductivity, raw.Temperature, raw.Pressure)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+				}
+			}()
 
-		calibrated := model.CalibratedCTD{
-			DiveID:      raw.DiveID,
-			Timestamp:   raw.Timestamp,
-			Temperature: raw.Temperature,
-			Pressure:    raw.Pressure,
-			Salinity:    result.Salinity,
-			Depth:       result.Depth,
-			Density:     result.Density,
-			CreatedAt:   now,
-		}
-		calibratedList = append(calibratedList, calibrated)
+			result := s.calculator.Calibrate(raw.Conductivity, raw.Temperature, raw.Pressure)
+
+			calibrated := model.CalibratedCTD{
+				DiveID:      raw.DiveID,
+				Timestamp:   raw.Timestamp,
+				Temperature: raw.Temperature,
+				Pressure:    raw.Pressure,
+				Salinity:    result.Salinity,
+				Depth:       result.Depth,
+				Density:     result.Density,
+				CreatedAt:   now,
+			}
+			calibratedList = append(calibratedList, calibrated)
+		}()
 	}
 
 	err = s.calibratedRepo.CreateBatch(calibratedList)

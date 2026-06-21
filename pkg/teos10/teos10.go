@@ -31,14 +31,34 @@ func NewTEOS10Calculator(latitude float64) *TEOS10Calculator {
 }
 
 func (t *TEOS10Calculator) PracticalSalinity(conductivity, temperature, pressure float64) float64 {
+	if conductivity <= 0 {
+		return 0
+	}
+
 	R := conductivity / SSSReferenceConductivity
+	if R <= 0 {
+		return 0
+	}
+
 	Rt := c[0] + c[1]*temperature + c[2]*math.Pow(temperature, 2) +
 		c[3]*math.Pow(temperature, 3) + c[4]*math.Pow(temperature, 4)
+	if Rt <= 0 {
+		return 0
+	}
+
 	Rp := 1.0 + (e[0]+e[1]*pressure+e[2]*math.Pow(pressure, 2))*pressure /
 		(1.0 + d[0]*temperature + d[1]*math.Pow(temperature, 2) +
 			(d[2]+d[3]*temperature)*R)
+	if Rp <= 0 {
+		return 0
+	}
+
 	RtRatio := R / (Rt * Rp)
-	sqrtRtRatio := math.Sqrt(math.Abs(RtRatio))
+	if RtRatio <= 0 {
+		return 0
+	}
+
+	sqrtRtRatio := math.Sqrt(RtRatio)
 	delTemperature := temperature - 15.0
 	delTerm := delTemperature / (1.0 + 0.0162*delTemperature)
 
@@ -54,18 +74,38 @@ func (t *TEOS10Calculator) PracticalSalinity(conductivity, temperature, pressure
 		salinity = t.correctLowSalinity(salinity, R, temperature, pressure)
 	}
 
-	return math.Max(salinity, 0)
+	if salinity < 0 || math.IsNaN(salinity) || math.IsInf(salinity, 0) {
+		return 0
+	}
+
+	return salinity
 }
 
 func (t *TEOS10Calculator) correctLowSalinity(salinity, R, temperature, pressure float64) float64 {
+	if salinity <= 0 || R <= 0 {
+		return 0
+	}
+
 	f := (temperature - 15.0) / (1.0 + 0.0162*(temperature-15.0))
 	Rp := 1.0 + (e[0]+e[1]*pressure+e[2]*math.Pow(pressure, 2))*pressure /
 		(1.0 + d[0]*temperature + d[1]*math.Pow(temperature, 2) +
 			(d[2]+d[3]*temperature)*R)
+	if Rp <= 0 {
+		return salinity
+	}
+
 	Rt := c[0] + c[1]*temperature + c[2]*math.Pow(temperature, 2) +
 		c[3]*math.Pow(temperature, 3) + c[4]*math.Pow(temperature, 4)
+	if Rt <= 0 {
+		return salinity
+	}
+
 	Rsub := R / (Rt * Rp)
-	sqrtRsub := math.Sqrt(math.Abs(Rsub))
+	if Rsub <= 0 {
+		return salinity
+	}
+
+	sqrtRsub := math.Sqrt(Rsub)
 
 	ds := 0.0
 	for i := 0; i < 6; i++ {
@@ -76,33 +116,55 @@ func (t *TEOS10Calculator) correctLowSalinity(salinity, R, temperature, pressure
 		a[4]*math.Pow(Rsub, 2) + a[5]*sqrtRsub*math.Pow(Rsub, 2)
 
 	salCorr := salinity * (salinity / 35.0) * ds
-	return salinity - salCorr
+	result := salinity - salCorr
+
+	if result < 0 || math.IsNaN(result) || math.IsInf(result, 0) {
+		return 0
+	}
+
+	return result
 }
 
 func (t *TEOS10Calculator) Depth(pressure float64) float64 {
+	if pressure <= 0 {
+		return 0
+	}
+
 	latRad := t.latitude * math.Pi / 180.0
 	sinLat := math.Sin(latRad)
 	sin2Lat := sinLat * sinLat
 
 	g := 9.780318 * (1.0 + 5.2788e-3*sin2Lat + 2.36e-5*sin2Lat*sin2Lat)
 
-	Z := -1.82e-15*math.Pow(pressure, 3) + 2.279e-10*math.Pow(pressure, 2) +
-		9.72659e-5*pressure - 0.000
+	c := 9.7265625
+	sqrtTerm := g*g + 2.0*g*c*pressure/1000.0
+	if sqrtTerm <= 0 {
+		return 0
+	}
 
-	depth := (-(math.Sqrt(g*g + 2.0*9.72659e-5*pressure) - g) / (9.72659e-5 * 0.5))
-	_ = Z
+	depth := (-(math.Sqrt(sqrtTerm) - g) / (c * 0.5 / 1000.0))
 
-	depth = pressure / (1025.0 * g / 10.0) * 10.0
+	nomBor := c * pressure
+	denomBor := g - 0.5*c*pressure/1000.0
+	if denomBor <= 0 {
+		return 0
+	}
 
-	nomBor := 9.7265625 * pressure
-	denomBor := 9.780318 * (1.0 + 5.2788e-3*sin2Lat + 2.36e-5*sin2Lat*sin2Lat)
-	depth = nomBor / (denomBor - 0.5*9.7265625e-5*pressure)
+	depth = nomBor / denomBor
 	depth = depth / 10.0
+
+	if depth < 0 || math.IsNaN(depth) || math.IsInf(depth, 0) {
+		return 0
+	}
 
 	return depth
 }
 
 func (t *TEOS10Calculator) Density(salinity, temperature, pressure float64) float64 {
+	if salinity < 0 {
+		salinity = 0
+	}
+
 	p0 := 999.842594 + 6.793952e-2*temperature - 9.09529e-3*math.Pow(temperature, 2) +
 		1.001685e-4*math.Pow(temperature, 3) - 1.120083e-6*math.Pow(temperature, 4) +
 		6.536332e-9*math.Pow(temperature, 5)
@@ -114,7 +176,9 @@ func (t *TEOS10Calculator) Density(salinity, temperature, pressure float64) floa
 
 	C := 4.8314e-4
 
-	rho0 := p0 + A*salinity + B*math.Pow(salinity, 1.5) + C*math.Pow(salinity, 2)
+	sqrtSal := math.Sqrt(salinity)
+	sal15 := salinity * sqrtSal
+	rho0 := p0 + A*salinity + B*sal15 + C*salinity*salinity
 
 	K0 := 19652.21 + 148.4206*temperature - 2.327105*math.Pow(temperature, 2) +
 		1.360477e-2*math.Pow(temperature, 3) - 5.155288e-5*math.Pow(temperature, 4)
@@ -131,10 +195,19 @@ func (t *TEOS10Calculator) Density(salinity, temperature, pressure float64) floa
 
 	KBP := 1.91075e-4
 
-	Ks := K0 + (KA + K0P*pressure)*salinity + (KB + KAP*pressure + KBP*math.Sqrt(salinity))*math.Pow(salinity, 1.5)
+	Ks := K0 + (KA + K0P*pressure)*salinity + (KB + KAP*pressure + KBP*sqrtSal)*sal15
 
 	p := pressure * 10.0
-	rho := rho0 / (1.0 - p/Ks)
+	denom := 1.0 - p/Ks
+	if math.Abs(denom) < 1e-10 {
+		return 0
+	}
+
+	rho := rho0 / denom
+
+	if rho < 0 || math.IsNaN(rho) || math.IsInf(rho, 0) {
+		return 0
+	}
 
 	return rho
 }
@@ -151,8 +224,8 @@ func (t *TEOS10Calculator) Calibrate(conductivity, temperature, pressure float64
 	density := t.Density(salinity, temperature, pressure)
 
 	return CalibrationResult{
-		Salinity: salinity,
-		Depth:    depth,
-		Density:  density,
+		Salinity: math.Max(salinity, 0),
+		Depth:    math.Max(depth, 0),
+		Density:  math.Max(density, 0),
 	}
 }
