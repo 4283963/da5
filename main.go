@@ -24,9 +24,10 @@ func main() {
 	calibratedRepo := repository.NewCalibratedCTDRepository(db)
 
 	calculator := teos10.NewTEOS10Calculator(cfg.Latitude)
+	breaker := service.NewCircuitBreaker(cfg.LowConductivityThreshold, cfg.LowConductivityStreakLimit)
 
 	rawDataService := service.NewRawDataService(rawRepo)
-	calibrationService := service.NewCalibrationService(rawRepo, calibratedRepo, calculator)
+	calibrationService := service.NewCalibrationService(rawRepo, calibratedRepo, calculator, breaker)
 
 	rawDataHandler := handler.NewRawDataHandler(rawDataService)
 	calibrationHandler := handler.NewCalibrationHandler(calibrationService)

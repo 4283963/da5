@@ -13,27 +13,38 @@ type CalibrationService interface {
 	ListCalibratedData(diveID string, page, pageSize int) ([]model.CalibratedCTD, int64, error)
 	RecalibrateDive(diveID string) (*model.CalibrateResponse, error)
 	DeleteCalibratedData(diveID string) error
+	GetCircuitBreakerStatus() CircuitBreakerStatus
+	ResetCircuitBreaker()
 }
+
+var ErrCircuitBreakerTripped = errors.New("校准功能已熔断停用：传感器异常，请擦洗传感器后重置熔断器")
 
 type calibrationService struct {
 	rawRepo        repository.RawCTDRepository
 	calibratedRepo repository.CalibratedCTDRepository
 	calculator     *teos10.TEOS10Calculator
+	breaker        *CircuitBreaker
 }
 
 func NewCalibrationService(
 	rawRepo repository.RawCTDRepository,
 	calibratedRepo repository.CalibratedCTDRepository,
 	calculator *teos10.TEOS10Calculator,
+	breaker *CircuitBreaker,
 ) CalibrationService {
 	return &calibrationService{
 		rawRepo:        rawRepo,
 		calibratedRepo: calibratedRepo,
 		calculator:     calculator,
+		breaker:        breaker,
 	}
 }
 
 func (s *calibrationService) CalibrateDive(diveID string) (*model.CalibrateResponse, error) {
+	if s.breaker.IsTripped() {
+		return nil, ErrCircuitBreakerTripped
+	}
+
 	exists, err := s.calibratedRepo.ExistsByDiveID(diveID)
 	if err != nil {
 		return nil, err
@@ -46,6 +57,10 @@ func (s *calibrationService) CalibrateDive(diveID string) (*model.CalibrateRespo
 }
 
 func (s *calibrationService) RecalibrateDive(diveID string) (*model.CalibrateResponse, error) {
+	if s.breaker.IsTripped() {
+		return nil, ErrCircuitBreakerTripped
+	}
+
 	err := s.calibratedRepo.DeleteByDiveID(diveID)
 	if err != nil {
 		return nil, err
@@ -68,6 +83,10 @@ func (s *calibrationService) performCalibration(diveID string) (*model.Calibrate
 	now := time.Now()
 
 	for _, raw := range rawDataList {
+		if s.breaker.Observe(raw.Conductivity) {
+			break
+		}
+
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -88,6 +107,10 @@ func (s *calibrationService) performCalibration(diveID string) (*model.Calibrate
 			}
 			calibratedList = append(calibratedList, calibrated)
 		}()
+	}
+
+	if s.breaker.IsTripped() {
+		return nil, ErrCircuitBreakerTripped
 	}
 
 	err = s.calibratedRepo.CreateBatch(calibratedList)
@@ -115,4 +138,12 @@ func (s *calibrationService) ListCalibratedData(diveID string, page, pageSize in
 
 func (s *calibrationService) DeleteCalibratedData(diveID string) error {
 	return s.calibratedRepo.DeleteByDiveID(diveID)
+}
+
+func (s *calibrationService) GetCircuitBreakerStatus() CircuitBreakerStatus {
+	return s.breaker.Status()
+}
+
+func (s *calibrationService) ResetCircuitBreaker() {
+	s.breaker.Reset()
 }

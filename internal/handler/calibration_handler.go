@@ -3,6 +3,7 @@ package handler
 import (
 	"ctd-calibration/internal/model"
 	"ctd-calibration/internal/service"
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,14 @@ func (h *CalibrationHandler) Calibrate(c *gin.Context) {
 
 	result, err := h.calibrationService.CalibrateDive(req.DiveID)
 	if err != nil {
+		if errors.Is(err, service.ErrCircuitBreakerTripped) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":   err.Error(),
+				"dive_id": req.DiveID,
+				"hint":    "请擦洗传感器后调用重置接口恢复校准功能",
+			})
+			return
+		}
 		if err.Error() == "calibrated data already exists for this dive, use recalibrate instead" {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":   err.Error(),
@@ -64,6 +73,14 @@ func (h *CalibrationHandler) Recalibrate(c *gin.Context) {
 
 	result, err := h.calibrationService.RecalibrateDive(req.DiveID)
 	if err != nil {
+		if errors.Is(err, service.ErrCircuitBreakerTripped) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error":   err.Error(),
+				"dive_id": req.DiveID,
+				"hint":    "请擦洗传感器后调用重置接口恢复校准功能",
+			})
+			return
+		}
 		if err.Error() == "no raw data found for this dive" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"error":   err.Error(),
@@ -125,5 +142,18 @@ func (h *CalibrationHandler) DeleteCalibrated(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "calibrated data deleted successfully",
 		"dive_id": diveID,
+	})
+}
+
+func (h *CalibrationHandler) GetCircuitBreaker(c *gin.Context) {
+	status := h.calibrationService.GetCircuitBreakerStatus()
+	c.JSON(http.StatusOK, status)
+}
+
+func (h *CalibrationHandler) ResetCircuitBreaker(c *gin.Context) {
+	h.calibrationService.ResetCircuitBreaker()
+	c.JSON(http.StatusOK, gin.H{
+		"message": "熔断器已重置，校准功能已恢复",
+		"status":  h.calibrationService.GetCircuitBreakerStatus(),
 	})
 }

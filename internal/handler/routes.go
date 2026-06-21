@@ -23,6 +23,8 @@ func SetupRoutes(
 		{
 			cal.POST("/calibrate", calibrationHandler.Calibrate)
 			cal.POST("/recalibrate", calibrationHandler.Recalibrate)
+			cal.GET("/circuit-breaker", calibrationHandler.GetCircuitBreaker)
+			cal.POST("/circuit-breaker/reset", calibrationHandler.ResetCircuitBreaker)
 			cal.GET("/:dive_id", calibrationHandler.ListCalibrated)
 			cal.DELETE("/:dive_id", calibrationHandler.DeleteCalibrated)
 		}
